@@ -3,12 +3,34 @@ import { Page, HTTPRequest, HTTPResponse } from "puppeteer";
 import fs from "fs";
 import path from "path";
 
+function urlToSnakeCase(url: string): string {
+  let result = url
+    .replace(/^https?:\/\//, "") // Remove protocol
+    .split("?")[0] // Remove query string
+    .replace(/[^a-zA-Z0-9]/g, "_") // Replace non-alphanumeric characters with underscore
+    .toLowerCase();
+
+  // Truncate the result if it exceeds 229 bytes
+  const maxBytes = 229;
+  if (Buffer.byteLength(result) > maxBytes) {
+    const ellipsis = "___";
+    let truncated = result.slice(0, maxBytes - Buffer.byteLength(ellipsis));
+    while (Buffer.byteLength(truncated + ellipsis) > maxBytes) {
+      truncated = truncated.slice(0, -1);
+    }
+    result = truncated + ellipsis;
+  }
+
+  return result;
+}
+
 interface InterceptedRequestResponse {
   request: {
     url: string;
     method: string;
     headers: Record<string, string>;
     postData?: string;
+    timestamp: number;
   };
   response?: {
     status: number;
@@ -99,6 +121,7 @@ export const requestInterceptionTools = {
           method: request.method(),
           headers: request.headers(),
           postData: request.postData(),
+          timestamp: Date.now(),
         },
       };
       interceptedRequests.set(request.url(), requestData);
@@ -140,15 +163,14 @@ export const requestInterceptionTools = {
 
     if (fs.existsSync(domainFolderPath)) {
       const files = fs.readdirSync(domainFolderPath);
-      for (const file of files) {
-        const filePath = path.join(domainFolderPath, file);
-        const fileContent: InterceptedRequestResponse = JSON.parse(
-          fs.readFileSync(filePath, "utf-8")
-        );
-        if (fileContent.request.url === url) {
-          requestData = fileContent;
-          break;
-        }
+      const urlSnakeCase = urlToSnakeCase(url);
+      const matchingFile = files.find((file) =>
+        file.endsWith(`_${urlSnakeCase}.json`)
+      );
+
+      if (matchingFile) {
+        const filePath = path.join(domainFolderPath, matchingFile);
+        requestData = JSON.parse(fs.readFileSync(filePath, "utf-8"));
       }
     }
 
@@ -225,8 +247,10 @@ async function saveInterceptedRequests(jobFolder: string): Promise<void> {
       fs.mkdirSync(domainFolderPath, { recursive: true });
     }
 
-    for (const [index, request] of requests.entries()) {
-      const fileName = `request_${index + 1}.json`;
+    for (const request of requests) {
+      const timestamp = request.request.timestamp.toString();
+      const urlSnakeCase = urlToSnakeCase(request.request.url);
+      const fileName = `${timestamp}_${urlSnakeCase}.json`;
       const filePath = path.join(domainFolderPath, fileName);
       fs.writeFileSync(filePath, JSON.stringify(request, null, 2));
     }
