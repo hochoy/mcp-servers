@@ -105,8 +105,13 @@ const TOOLS: Tool[] = [
     description: "Create a new job with a unique identifier",
     inputSchema: {
       type: "object",
-      properties: {},
-      required: [],
+      properties: {
+        parentFolder: {
+          type: "string",
+          description: "Parent folder location to store job folders",
+        },
+      },
+      required: ["parentFolder"],
     },
   },
   {
@@ -262,24 +267,23 @@ const screenshots = new Map<string, string>();
 const jobFolders = new Map<string, string>();
 
 // Job folder management
-function getJobFolder(jobId: string): string {
+function getJobFolder(jobId: string, parentFolder: string): string {
   const existingFolder = jobFolders.get(jobId);
   if (existingFolder) {
     return existingFolder;
   }
 
-  const tmpDir = path.join(path.dirname(__dirname), "tmp");
-  if (!fs.existsSync(tmpDir)) {
-    fs.mkdirSync(tmpDir);
+  if (!fs.existsSync(parentFolder)) {
+    fs.mkdirSync(parentFolder, { recursive: true });
   }
 
   // Check for existing folder with jobId prefix
-  const existingFolders = fs.readdirSync(tmpDir);
+  const existingFolders = fs.readdirSync(parentFolder);
   const existingJobFolder = existingFolders.find((folder) =>
     folder.startsWith(`${jobId}-`)
   );
   if (existingJobFolder) {
-    const fullPath = path.join(tmpDir, existingJobFolder);
+    const fullPath = path.join(parentFolder, existingJobFolder);
     jobFolders.set(jobId, fullPath);
     return fullPath;
   }
@@ -287,7 +291,7 @@ function getJobFolder(jobId: string): string {
   // Create new folder with timestamp
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const folderName = `${jobId}-${timestamp}`;
-  const folderPath = path.join(tmpDir, folderName);
+  const folderPath = path.join(parentFolder, folderName);
   fs.mkdirSync(folderPath);
   jobFolders.set(jobId, folderPath);
   return folderPath;
@@ -345,8 +349,19 @@ async function handleToolCall(
 
     // Handle job creation separately as it doesn't require a jobId
     if (name === "puppeteer_create_job") {
+      if (!args.parentFolder) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "parentFolder is required for job creation",
+            },
+          ],
+          isError: true,
+        };
+      }
       const jobId = `job-${Date.now()}`;
-      const jobFolder = getJobFolder(jobId);
+      const jobFolder = getJobFolder(jobId, args.parentFolder);
       return {
         content: [
           {
@@ -358,13 +373,13 @@ async function handleToolCall(
       };
     }
 
-    // For all other tools, ensure jobId is provided
-    if (!args.jobId) {
+    // For all other tools, ensure jobId and parentFolder are provided
+    if (!args.jobId || !args.parentFolder) {
       return {
         content: [
           {
             type: "text",
-            text: "jobId is required",
+            text: "jobId and parentFolder are required",
           },
         ],
         isError: true,
@@ -372,7 +387,7 @@ async function handleToolCall(
     }
 
     // Get or create job folder
-    const jobFolder = getJobFolder(args.jobId);
+    const jobFolder = getJobFolder(args.jobId, args.parentFolder);
 
     switch (name) {
       case "puppeteer_enable_request_interception":
