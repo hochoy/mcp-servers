@@ -12,17 +12,45 @@ import {
   ImageContent,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import puppeteer, { Browser, Page, HTTPRequest } from "puppeteer";
+import puppeteer, { Browser, Page } from "puppeteer";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+import { requestInterceptionTools } from "./tools/request-interception.js";
+import { htmlTools } from "./tools/html.js";
+// Tool definitions
 
 // Define the tools once to avoid repetition
 const TOOLS: Tool[] = [
+  {
+    name: "puppeteer_get_html",
+    description: "Get the entire HTML content of the current page",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
+      },
+      required: ["jobId"],
+    },
+  },
   {
     name: "puppeteer_enable_request_interception",
     description: "Enable request interception",
     inputSchema: {
       type: "object",
-      properties: {},
-      required: [],
+      properties: {
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
+      },
+      required: ["jobId"],
     },
   },
   {
@@ -30,8 +58,13 @@ const TOOLS: Tool[] = [
     description: "Disable request interception",
     inputSchema: {
       type: "object",
-      properties: {},
-      required: [],
+      properties: {
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
+      },
+      required: ["jobId"],
     },
   },
   {
@@ -39,51 +72,41 @@ const TOOLS: Tool[] = [
     description: "Get the list of intercepted requests",
     inputSchema: {
       type: "object",
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "puppeteer_navigate",
-    description: "Navigate to a URL",
-    inputSchema: {
-      type: "object",
       properties: {
-        url: { type: "string" },
-      },
-      required: ["url"],
-    },
-  },
-  {
-    name: "puppeteer_get_html",
-    description: "Get the entire HTML content of the current page",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "puppeteer_screenshot",
-    description: "Take a screenshot of the current page or a specific element",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Name for the screenshot" },
-        selector: {
+        jobId: {
           type: "string",
-          description: "CSS selector for element to screenshot",
-        },
-        width: {
-          type: "number",
-          description: "Width in pixels (default: 800)",
-        },
-        height: {
-          type: "number",
-          description: "Height in pixels (default: 600)",
+          description: "Job identifier",
         },
       },
-      required: ["name"],
+      required: ["jobId"],
+    },
+  },
+  {
+    name: "puppeteer_get_request_details",
+    description:
+      "Get detailed information about a specific request/response pair",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "URL of the request to retrieve details for",
+        },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
+      },
+      required: ["url", "jobId"],
+    },
+  },
+  {
+    name: "puppeteer_create_job",
+    description: "Create a new job with a unique identifier",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
     },
   },
   {
@@ -96,8 +119,12 @@ const TOOLS: Tool[] = [
           type: "string",
           description: "CSS selector for element to click",
         },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
       },
-      required: ["selector"],
+      required: ["selector", "jobId"],
     },
   },
   {
@@ -110,9 +137,16 @@ const TOOLS: Tool[] = [
           type: "string",
           description: "CSS selector for input field",
         },
-        value: { type: "string", description: "Value to fill" },
+        value: {
+          type: "string",
+          description: "Value to fill",
+        },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
       },
-      required: ["selector", "value"],
+      required: ["selector", "value", "jobId"],
     },
   },
   {
@@ -125,9 +159,16 @@ const TOOLS: Tool[] = [
           type: "string",
           description: "CSS selector for element to select",
         },
-        value: { type: "string", description: "Value to select" },
+        value: {
+          type: "string",
+          description: "Value to select",
+        },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
       },
-      required: ["selector", "value"],
+      required: ["selector", "value", "jobId"],
     },
   },
   {
@@ -140,8 +181,57 @@ const TOOLS: Tool[] = [
           type: "string",
           description: "CSS selector for element to hover",
         },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
       },
-      required: ["selector"],
+      required: ["selector", "jobId"],
+    },
+  },
+  {
+    name: "puppeteer_navigate",
+    description: "Navigate to a URL",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string" },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
+      },
+      required: ["url", "jobId"],
+    },
+  },
+  {
+    name: "puppeteer_screenshot",
+    description: "Take a screenshot of the current page or a specific element",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name for the screenshot",
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector for element to screenshot",
+        },
+        width: {
+          type: "number",
+          description: "Width in pixels (default: 800)",
+        },
+        height: {
+          type: "number",
+          description: "Height in pixels (default: 600)",
+        },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
+      },
+      required: ["name", "jobId"],
     },
   },
   {
@@ -150,9 +240,16 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        script: { type: "string", description: "JavaScript code to execute" },
+        script: {
+          type: "string",
+          description: "JavaScript code to execute",
+        },
+        jobId: {
+          type: "string",
+          description: "Job identifier",
+        },
       },
-      required: ["script"],
+      required: ["script", "jobId"],
     },
   },
 ];
@@ -162,7 +259,39 @@ let browser: Browser | undefined;
 let page: Page | undefined;
 const consoleLogs: string[] = [];
 const screenshots = new Map<string, string>();
-const interceptedRequests: HTTPRequest[] = [];
+const jobFolders = new Map<string, string>();
+
+// Job folder management
+function getJobFolder(jobId: string): string {
+  const existingFolder = jobFolders.get(jobId);
+  if (existingFolder) {
+    return existingFolder;
+  }
+
+  const tmpDir = path.join(path.dirname(__dirname), "tmp");
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir);
+  }
+
+  // Check for existing folder with jobId prefix
+  const existingFolders = fs.readdirSync(tmpDir);
+  const existingJobFolder = existingFolders.find((folder) =>
+    folder.startsWith(`${jobId}-`)
+  );
+  if (existingJobFolder) {
+    const fullPath = path.join(tmpDir, existingJobFolder);
+    jobFolders.set(jobId, fullPath);
+    return fullPath;
+  }
+
+  // Create new folder with timestamp
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const folderName = `${jobId}-${timestamp}`;
+  const folderPath = path.join(tmpDir, folderName);
+  fs.mkdirSync(folderPath);
+  jobFolders.set(jobId, folderPath);
+  return folderPath;
+}
 
 async function ensureBrowser() {
   if (!browser) {
@@ -186,12 +315,8 @@ async function ensureBrowser() {
       });
     });
 
-    page.on("request", (request) => {
-      interceptedRequests.push(request);
-      if (page && page.listenerCount("request") > 0) {
-        request.continue().catch(console.error);
-      }
-    });
+    // Setup request interception
+    requestInterceptionTools.setupRequestInterception(page);
 
     browser.on("disconnected", () => {
       console.error("Browser disconnected");
@@ -218,48 +343,55 @@ async function handleToolCall(
   try {
     const page = await ensureBrowser();
 
+    // Handle job creation separately as it doesn't require a jobId
+    if (name === "puppeteer_create_job") {
+      const jobId = `job-${Date.now()}`;
+      const jobFolder = getJobFolder(jobId);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Created job ${jobId} with folder ${jobFolder}`,
+          },
+        ],
+        isError: false,
+      };
+    }
+
+    // For all other tools, ensure jobId is provided
+    if (!args.jobId) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "jobId is required",
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Get or create job folder
+    const jobFolder = getJobFolder(args.jobId);
+
     switch (name) {
       case "puppeteer_enable_request_interception":
-        await page.setRequestInterception(true);
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Request interception enabled",
-            },
-          ],
-          isError: false,
-        };
+        return await requestInterceptionTools.enable(page, jobFolder);
 
       case "puppeteer_disable_request_interception":
-        await page.setRequestInterception(false);
-        interceptedRequests.length = 0; // Clear the intercepted requests
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Request interception disabled",
-            },
-          ],
-          isError: false,
-        };
+        return await requestInterceptionTools.disable(page, jobFolder);
 
       case "puppeteer_get_intercepted_requests":
-        const requestsData = interceptedRequests.map((request) => ({
-          url: request.url(),
-          method: request.method(),
-          headers: request.headers(),
-          postData: request.postData(),
-        }));
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(requestsData, null, 2),
-            },
-          ],
-          isError: false,
-        };
+        return await requestInterceptionTools.getInterceptedRequests(jobFolder);
+
+      case "puppeteer_get_request_details":
+        return await requestInterceptionTools.getRequestDetails(
+          jobFolder,
+          args.url
+        );
+
+      case "puppeteer_get_html":
+        return await htmlTools.getHtml(page, jobFolder);
 
       case "puppeteer_navigate":
         await page.goto(args.url);
@@ -272,30 +404,6 @@ async function handleToolCall(
           ],
           isError: false,
         };
-
-      case "puppeteer_get_html":
-        try {
-          const html = await page.content();
-          return {
-            content: [
-              {
-                type: "text",
-                text: html,
-              },
-            ],
-            isError: false,
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Failed to get HTML content: ${(error as Error).message}`,
-              },
-            ],
-            isError: true,
-          };
-        }
 
       case "puppeteer_screenshot": {
         const width = args.width ?? 800;
@@ -320,6 +428,10 @@ async function handleToolCall(
           };
         }
 
+        // Save screenshot to job folder
+        const screenshotPath = path.join(jobFolder, `${args.name}.png`);
+        fs.writeFileSync(screenshotPath, Buffer.from(screenshot, "base64"));
+
         screenshots.set(args.name, screenshot as string);
         server.notification({
           method: "notifications/resources/list_changed",
@@ -329,7 +441,7 @@ async function handleToolCall(
           content: [
             {
               type: "text",
-              text: `Screenshot '${args.name}' taken at ${width}x${height}`,
+              text: `Screenshot '${args.name}' taken at ${width}x${height} and saved to ${screenshotPath}`,
             } as TextContent,
             {
               type: "image",

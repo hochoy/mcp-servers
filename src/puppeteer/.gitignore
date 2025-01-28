@@ -1,0 +1,14 @@
+# Ignore temporary HTML files
+tmp/
+
+# Ignore node_modules
+node_modules/
+
+# Ignore dist directory
+dist/
+
+# Ignore any log files
+*.log
+
+# Ignore environment files
+.env
