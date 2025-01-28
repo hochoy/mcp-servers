@@ -12,10 +12,37 @@ import {
   ImageContent,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import puppeteer, { Browser, Page } from "puppeteer";
+import puppeteer, { Browser, Page, HTTPRequest } from "puppeteer";
 
 // Define the tools once to avoid repetition
 const TOOLS: Tool[] = [
+  {
+    name: "puppeteer_enable_request_interception",
+    description: "Enable request interception",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "puppeteer_disable_request_interception",
+    description: "Disable request interception",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "puppeteer_get_intercepted_requests",
+    description: "Get the list of intercepted requests",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
   {
     name: "puppeteer_navigate",
     description: "Navigate to a URL",
@@ -135,6 +162,7 @@ let browser: Browser | undefined;
 let page: Page | undefined;
 const consoleLogs: string[] = [];
 const screenshots = new Map<string, string>();
+const interceptedRequests: HTTPRequest[] = [];
 
 async function ensureBrowser() {
   if (!browser) {
@@ -157,6 +185,19 @@ async function ensureBrowser() {
         params: { uri: "console://logs" },
       });
     });
+
+    page.on("request", (request) => {
+      interceptedRequests.push(request);
+      if (page && page.listenerCount("request") > 0) {
+        request.continue().catch(console.error);
+      }
+    });
+
+    browser.on("disconnected", () => {
+      console.error("Browser disconnected");
+      browser = undefined;
+      page = undefined;
+    });
   }
   return page!;
 }
@@ -174,256 +215,311 @@ async function handleToolCall(
   name: string,
   args: any
 ): Promise<CallToolResult> {
-  const page = await ensureBrowser();
+  try {
+    const page = await ensureBrowser();
 
-  switch (name) {
-    case "puppeteer_navigate":
-      await page.goto(args.url);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Navigated to ${args.url}`,
-          },
-        ],
-        isError: false,
-      };
-
-    case "puppeteer_get_html":
-      try {
-        const html = await page.content();
+    switch (name) {
+      case "puppeteer_enable_request_interception":
+        await page.setRequestInterception(true);
         return {
           content: [
             {
               type: "text",
-              text: html,
+              text: "Request interception enabled",
             },
           ],
           isError: false,
         };
-      } catch (error) {
+
+      case "puppeteer_disable_request_interception":
+        await page.setRequestInterception(false);
+        interceptedRequests.length = 0; // Clear the intercepted requests
         return {
           content: [
             {
               type: "text",
-              text: `Failed to get HTML content: ${(error as Error).message}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-
-    case "puppeteer_screenshot": {
-      const width = args.width ?? 800;
-      const height = args.height ?? 600;
-      await page.setViewport({ width, height });
-
-      const screenshot = await (args.selector
-        ? (await page.$(args.selector))?.screenshot({ encoding: "base64" })
-        : page.screenshot({ encoding: "base64", fullPage: false }));
-
-      if (!screenshot) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: args.selector
-                ? `Element not found: ${args.selector}`
-                : "Screenshot failed",
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      screenshots.set(args.name, screenshot as string);
-      server.notification({
-        method: "notifications/resources/list_changed",
-      });
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Screenshot '${args.name}' taken at ${width}x${height}`,
-          } as TextContent,
-          {
-            type: "image",
-            data: screenshot,
-            mimeType: "image/png",
-          } as ImageContent,
-        ],
-        isError: false,
-      };
-    }
-
-    case "puppeteer_click":
-      try {
-        await page.click(args.selector);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Clicked: ${args.selector}`,
+              text: "Request interception disabled",
             },
           ],
           isError: false,
         };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Failed to click ${args.selector}: ${
-                (error as Error).message
-              }`,
-            },
-          ],
-          isError: true,
-        };
-      }
 
-    case "puppeteer_fill":
-      try {
-        await page.waitForSelector(args.selector);
-        await page.type(args.selector, args.value);
+      case "puppeteer_get_intercepted_requests":
+        const requestsData = interceptedRequests.map((request) => ({
+          url: request.url(),
+          method: request.method(),
+          headers: request.headers(),
+          postData: request.postData(),
+        }));
         return {
           content: [
             {
               type: "text",
-              text: `Filled ${args.selector} with: ${args.value}`,
+              text: JSON.stringify(requestsData, null, 2),
             },
           ],
           isError: false,
         };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Failed to fill ${args.selector}: ${
-                (error as Error).message
-              }`,
-            },
-          ],
-          isError: true,
-        };
-      }
 
-    case "puppeteer_select":
-      try {
-        await page.waitForSelector(args.selector);
-        await page.select(args.selector, args.value);
+      case "puppeteer_navigate":
+        await page.goto(args.url);
         return {
           content: [
             {
               type: "text",
-              text: `Selected ${args.selector} with: ${args.value}`,
+              text: `Navigated to ${args.url}`,
             },
           ],
           isError: false,
         };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Failed to select ${args.selector}: ${
-                (error as Error).message
-              }`,
-            },
-          ],
-          isError: true,
-        };
-      }
 
-    case "puppeteer_hover":
-      try {
-        await page.waitForSelector(args.selector);
-        await page.hover(args.selector);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Hovered ${args.selector}`,
-            },
-          ],
-          isError: false,
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Failed to hover ${args.selector}: ${
-                (error as Error).message
-              }`,
-            },
-          ],
-          isError: true,
-        };
-      }
-
-    case "puppeteer_evaluate":
-      try {
-        await page.evaluate(() => {
-          window.mcpHelper = {
-            logs: [],
-            originalConsole: { ...console },
+      case "puppeteer_get_html":
+        try {
+          const html = await page.content();
+          return {
+            content: [
+              {
+                type: "text",
+                text: html,
+              },
+            ],
+            isError: false,
           };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to get HTML content: ${(error as Error).message}`,
+              },
+            ],
+            isError: true,
+          };
+        }
 
-          ["log", "info", "warn", "error"].forEach((method) => {
-            (console as any)[method] = (...args: any[]) => {
-              window.mcpHelper.logs.push(`[${method}] ${args.join(" ")}`);
-              (window.mcpHelper.originalConsole as any)[method](...args);
-            };
-          });
-        });
+      case "puppeteer_screenshot": {
+        const width = args.width ?? 800;
+        const height = args.height ?? 600;
+        await page.setViewport({ width, height });
 
-        const result = await page.evaluate(args.script);
+        const screenshot = await (args.selector
+          ? (await page.$(args.selector))?.screenshot({ encoding: "base64" })
+          : page.screenshot({ encoding: "base64", fullPage: false }));
 
-        const logs = await page.evaluate(() => {
-          Object.assign(console, window.mcpHelper.originalConsole);
-          const logs = window.mcpHelper.logs;
-          delete (window as any).mcpHelper;
-          return logs;
+        if (!screenshot) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: args.selector
+                  ? `Element not found: ${args.selector}`
+                  : "Screenshot failed",
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        screenshots.set(args.name, screenshot as string);
+        server.notification({
+          method: "notifications/resources/list_changed",
         });
 
         return {
           content: [
             {
               type: "text",
-              text: `Execution result:\n${JSON.stringify(
-                result,
-                null,
-                2
-              )}\n\nConsole output:\n${logs.join("\n")}`,
-            },
+              text: `Screenshot '${args.name}' taken at ${width}x${height}`,
+            } as TextContent,
+            {
+              type: "image",
+              data: screenshot,
+              mimeType: "image/png",
+            } as ImageContent,
           ],
           isError: false,
         };
-      } catch (error) {
+      }
+
+      case "puppeteer_click":
+        try {
+          await page.click(args.selector);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Clicked: ${args.selector}`,
+              },
+            ],
+            isError: false,
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to click ${args.selector}: ${
+                  (error as Error).message
+                }`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+      case "puppeteer_fill":
+        try {
+          await page.waitForSelector(args.selector);
+          await page.type(args.selector, args.value);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Filled ${args.selector} with: ${args.value}`,
+              },
+            ],
+            isError: false,
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to fill ${args.selector}: ${
+                  (error as Error).message
+                }`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+      case "puppeteer_select":
+        try {
+          await page.waitForSelector(args.selector);
+          await page.select(args.selector, args.value);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Selected ${args.selector} with: ${args.value}`,
+              },
+            ],
+            isError: false,
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to select ${args.selector}: ${
+                  (error as Error).message
+                }`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+      case "puppeteer_hover":
+        try {
+          await page.waitForSelector(args.selector);
+          await page.hover(args.selector);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Hovered ${args.selector}`,
+              },
+            ],
+            isError: false,
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to hover ${args.selector}: ${
+                  (error as Error).message
+                }`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+      case "puppeteer_evaluate":
+        try {
+          await page.evaluate(() => {
+            window.mcpHelper = {
+              logs: [],
+              originalConsole: { ...console },
+            };
+
+            ["log", "info", "warn", "error"].forEach((method) => {
+              (console as any)[method] = (...args: any[]) => {
+                window.mcpHelper.logs.push(`[${method}] ${args.join(" ")}`);
+                (window.mcpHelper.originalConsole as any)[method](...args);
+              };
+            });
+          });
+
+          const result = await page.evaluate(args.script);
+
+          const logs = await page.evaluate(() => {
+            Object.assign(console, window.mcpHelper.originalConsole);
+            const logs = window.mcpHelper.logs;
+            delete (window as any).mcpHelper;
+            return logs;
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Execution result:\n${JSON.stringify(
+                  result,
+                  null,
+                  2
+                )}\n\nConsole output:\n${logs.join("\n")}`,
+              },
+            ],
+            isError: false,
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Script execution failed: ${(error as Error).message}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+      default:
         return {
           content: [
             {
               type: "text",
-              text: `Script execution failed: ${(error as Error).message}`,
+              text: `Unknown tool: ${name}`,
             },
           ],
           isError: true,
         };
-      }
-
-    default:
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Unknown tool: ${name}`,
-          },
-        ],
-        isError: true,
-      };
+    }
+  } catch (error) {
+    console.error(`Error in handleToolCall: ${error}`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `An error occurred: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
   }
 }
 
@@ -505,7 +601,19 @@ async function runServer() {
 
 runServer().catch(console.error);
 
-process.stdin.on("close", () => {
+process.stdin.on("close", async () => {
   console.error("Puppeteer MCP Server closed");
-  server.close();
+  if (browser) {
+    await browser.close().catch(console.error);
+  }
+  await server.close().catch(console.error);
+});
+
+process.on("SIGINT", async () => {
+  console.error("Received SIGINT. Closing server and browser.");
+  if (browser) {
+    await browser.close().catch(console.error);
+  }
+  await server.close().catch(console.error);
+  process.exit(0);
 });
