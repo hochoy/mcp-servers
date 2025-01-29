@@ -2,15 +2,37 @@
 
 A Model Context Protocol server that provides browser automation capabilities using Puppeteer. This server enables LLMs to interact with web pages, take screenshots, and execute JavaScript in a real browser environment.
 
+## Prompt
+
+```txt
+Run the below:
+
+1. Prompt the user for a WEBSITE_URL
+
+Puppeteer mcp server:
+1. Navigate to blank page on puppeteer
+2. enable intercept network requests
+3. navigate to <WEBSITE_URL>
+4. save the raw html
+5. wait for 10 seconds (sleep 10) and then save the network requests
+
+Other:
+6. summarize and categorize the network requests grouped by the domain and the likely functionality based on url path and/or the request/response payload.
+7. Write the summary down in a markdown file in the tmp/<jobid> folder referenced by .gitignore inside puppeteer mcp server
+8. For the network requests matching the domain of the navigation, list out every single request, and summarize what each request is likely doing
+```
+
 ## Components
 
 ### Tools
 
 - **puppeteer_navigate**
+
   - Navigate to any URL in the browser
   - Input: `url` (string)
 
 - **puppeteer_screenshot**
+
   - Capture screenshots of the entire page or specific elements
   - Inputs:
     - `name` (string, required): Name for the screenshot
@@ -19,20 +41,24 @@ A Model Context Protocol server that provides browser automation capabilities us
     - `height` (number, optional, default: 600): Screenshot height
 
 - **puppeteer_click**
+
   - Click elements on the page
   - Input: `selector` (string): CSS selector for element to click
 
 - **puppeteer_hover**
+
   - Hover elements on the page
   - Input: `selector` (string): CSS selector for element to hover
 
 - **puppeteer_fill**
+
   - Fill out input fields
   - Inputs:
     - `selector` (string): CSS selector for input field
     - `value` (string): Value to fill
 
 - **puppeteer_select**
+
   - Select an element with SELECT tag
   - Inputs:
     - `selector` (string): CSS selector for element to select
@@ -47,6 +73,7 @@ A Model Context Protocol server that provides browser automation capabilities us
 The server provides access to two types of resources:
 
 1. **Console Logs** (`console://logs`)
+
    - Browser console output in text format
    - Includes all console messages from the browser
 
@@ -63,6 +90,7 @@ The server provides access to two types of resources:
 - Basic web interaction (navigation, clicking, form filling)
 
 ## Configuration to use Puppeteer Server
+
 Here's the Claude Desktop configuration to use the Puppeter server:
 
 ### Docker
@@ -74,7 +102,15 @@ Here's the Claude Desktop configuration to use the Puppeter server:
   "mcpServers": {
     "puppeteer": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "--init", "-e", "DOCKER_CONTAINER=true", "mcp/puppeteer"]
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "-e",
+        "DOCKER_CONTAINER=true",
+        "mcp/puppeteer"
+      ]
     }
   }
 }
